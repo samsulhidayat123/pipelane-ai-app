@@ -109,11 +109,20 @@ def run_yt_dlp(url, format_type, task_id):
             progress_db[task_id] = {"status": "processing", "percent": 100}
 
     ydl_opts = {
-        'impersonate': 'chrome',
+        'impersonate': 'chrome', # Wajib ada curl_cffi di requirements.txt
         'outtmpl': output_tmpl,
         'quiet': True,
+        'no_warnings': True,
         'progress_hooks': [progress_hook],
         'noplaylist': True,
+        # Tambahan sakti biar gak gampang Strike/Error:
+        'nocheckcertificate': True,
+        'geo_bypass': True,
+        'headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
 
     # Logika Format (MP3 / MP4)
