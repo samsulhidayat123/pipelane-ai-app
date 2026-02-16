@@ -20,7 +20,42 @@ if 'COOKIES_CONTENT' in os.environ:
         f.write(os.environ['COOKIES_CONTENT'])
 
 progress_db = {}
+@app.route('/api/info', methods=['POST'])
+def get_info():
+    data = request.json
+    if not data or not data.get('url'):
+        return jsonify({"error": "URL tidak boleh kosong"}), 400
 
+    url = data.get('url')
+    
+    # Samakan dengan opsi download agar tembus proteksi YouTube
+    ydl_opts = {
+        'impersonate': 'chrome',
+        'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'geo_bypass': True,
+        'headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        }
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # extract_info dengan download=False hanya mengambil metadata
+            info = ydl.extract_info(url, download=False)
+            return jsonify({
+                "title": info.get('title', 'Video Tanpa Judul'),
+                "thumbnail": info.get('thumbnail'),
+                "duration": info.get('duration_string', '00:00'),
+                "platform": info.get('extractor_key', 'Platform'),
+                "uploader": info.get('uploader', 'Kreator')
+            })
+    except Exception as e:
+        # Muncul di logs Hugging Face jika gagal
+        print(f"INFO ERROR: {e}")
+        return jsonify({"error": f"Gagal mengambil info: {str(e)[:100]}"}), 500
 def auto_delete_files():
     while True:
         now = time.time()
