@@ -1,3 +1,4 @@
 flask
-requests
-gunicorn
+youtube-transcript-api
+google-generativeai
+fpdf
