@@ -1,3 +1,33 @@
+# === ☢️ DNS MANUAL PATCH (WAJIB PALING ATAS) ===
+# Kita paksa Python pakai DNS Google (8.8.8.8) biar gak linglung
+import socket
+import dns.resolver # Perlu install dnspython (lihat instruksi di bawah)
+
+# Fungsi kustom buat maksa resolve DNS
+def custom_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    try:
+        # Coba cara normal dulu
+        return original_getaddrinfo(host, port, family, type, proto, flags)
+    except socket.gaierror:
+        # Kalau gagal, paksa tanya ke Google DNS (8.8.8.8)
+        print(f"⚠️ DNS Error untuk {host}, mencoba manual resolve...", flush=True)
+        try:
+            resolver = dns.resolver.Resolver()
+            resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+            answers = resolver.resolve(host, 'A')
+            ip = answers[0].to_text()
+            print(f"✅ Berhasil resolve manual: {host} -> {ip}", flush=True)
+            # Kembalikan format yang dimengerti socket
+            return [(socket.AF_INET, type, proto, '', (ip, port))]
+        except Exception as e:
+            print(f"❌ Gagal total resolve manual: {e}", flush=True)
+            raise
+
+# Simpan fungsi asli dan ganti dengan yang kustom
+original_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = custom_getaddrinfo
+# ===============================================
+
 from flask import Flask, render_template, request, jsonify, send_file, Response
 import yt_dlp
 import os
@@ -8,7 +38,7 @@ import json
 
 app = Flask(__name__)
 
-# === 📹 CCTV LOGGING SIMPLE ===
+# === 📹 CCTV LOGGING ===
 @app.before_request
 def log_request_info():
     if request.method == 'POST' and request.is_json:
@@ -19,28 +49,28 @@ DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-# --- COOKIES DIMATIKAN SEMENTARA ---
-# Kita tes tanpa cookies dulu biar tidak ada redirect aneh-aneh
-COOKIES_FILE = 'cookies.txt' 
-# -----------------------------------
-
 progress_db = {}
 
+# --- FUNGSI UTAMA ---
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
-        # === SETTINGAN STANDAR PABRIK (RESET) ===
-        # Kita hapus cookiefile, hapus android client, hapus headers aneh-aneh
-        # Biarkan yt-dlp bekerja secara default
+        # Kita matikan cookies dulu biar tes koneksi murni
+        # 'cookiefile': 'cookies.txt', 
         
         'quiet': False,
         'no_warnings': False,
-        'verbose': True, # Tetap nyala buat pantau log
+        'verbose': True,
         
-        'force_ipv4': True,  # Tetap pakai IPv4 karena lebih stabil di cloud
+        # Opsi Jaringan Stabil
+        'force_ipv4': True,
         'nocheckcertificate': True,
         'geo_bypass': True,
+        'socket_timeout': 30,
         
-        # HAPUS extractor_args (Android) -> Kembali ke Web Client biasa
+        # Headers Polos (Tanpa Android/Impersonate dulu)
+        'headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        }
     }
 
     if task_id:
@@ -61,18 +91,17 @@ def get_info():
     ydl_opts = get_ydl_opts()
 
     try:
-        print(f"Mencoba mengambil info dari: {url}")
+        print(f"⏳ Mencoba mengambil info: {url}")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             return jsonify({
                 "title": info.get('title', 'Video Tanpa Judul'),
                 "thumbnail": info.get('thumbnail'),
                 "duration": info.get('duration_string', '00:00'),
-                "platform": info.get('extractor_key', 'Platform'),
                 "uploader": info.get('uploader', 'Kreator')
             })
     except Exception as e:
-        print(f"INFO ERROR (Detailed): {repr(e)}")
+        print(f"❌ INFO ERROR: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/download', methods=['POST'])
@@ -118,9 +147,10 @@ def run_yt_dlp(url, format_type, task_id):
             ydl.download([url])
             progress_db[task_id] = {"status": "finished", "percent": 100, "file_url": f"/api/get-file/{task_id}"}
     except Exception as e:
-        print(f"DOWNLOAD ERROR: {repr(e)}")
+        print(f"❌ DOWNLOAD ERROR: {str(e)}")
         progress_db[task_id] = {"status": "error", "error": str(e)}
 
+# --- SISANYA SAMA ---
 @app.route('/')
 def index(): return render_template('index.html')
 
