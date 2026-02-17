@@ -1,3 +1,11 @@
+import socket
+def getaddrinfo_ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
+    return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+orig_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = getaddrinfo_ipv4_only
+# ===================================================
+
 from flask import Flask, render_template, request, jsonify, send_file, Response
 import yt_dlp
 import os
@@ -39,7 +47,7 @@ print("----------------------")
 
 progress_db = {}
 
-# --- FUNGSI OPTION YT-DLP (DENGAN PERBAIKAN DNS) ---
+# --- FUNGSI OPTION YT-DLP ---
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
         'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
@@ -49,9 +57,8 @@ def get_ydl_opts(task_id=None, progress_hook=None):
         'no_warnings': False,
         'verbose': True,
         
-        # === SOLUSI DNS ERROR (Mantra Sakti) ===
-        'force_ipv4': True,  # Paksa lewat IPv4 biar server gak linglung
-        # =======================================
+        # DNS Fix
+        'force_ipv4': True, 
         
         'nocheckcertificate': True,
         'geo_bypass': True,
