@@ -1,5 +1,5 @@
 FROM python:3.10-slim
-
+ENV PYTHONUNBUFFERED=1
 # Install ffmpeg untuk proses merging video/audio
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
