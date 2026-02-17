@@ -1,153 +1,93 @@
-from flask import Flask, render_template, request, jsonify, send_file, Response
-import requests
 import os
 import uuid
-import time
-import threading
-import json
+from flask import Flask, render_template, request, jsonify, session, send_file
+from youtube_transcript_api import YouTubeTranscriptApi
+import google.generativeai as genai
+from fpdf import FPDF
 
 app = Flask(__name__)
+app.secret_key = "DECON_78_SECRET" # Ganti sesukamu
 
-# Folder penyimpanan file sementara
-DOWNLOAD_FOLDER = 'downloads'
-if not os.path.exists(DOWNLOAD_FOLDER):
-    os.makedirs(DOWNLOAD_FOLDER)
+# 1. KONFIGURASI AI
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Database di memori untuk pantau progress bar di frontend
-progress_db = {}
+# 2. DATABASE SEDERHANA (In-Memory)
+# Untuk SaaS asli, hubungkan ke Firebase yang pernah kamu pelajari
+users_db = {
+    "admin": {"password": "123", "role": "premium", "credits": 999},
+    "guest": {"password": "guest", "role": "free", "credits": 3}
+}
 
-# === 📹 LOGGING SISTEM ===
-@app.before_request
-def log_request_info():
-    if not request.path.startswith('/static') and not request.path.startswith('/api/progress'):
-        print(f"LOG: {request.method} {request.path}", flush=True)
+# --- FUNGSI TOOLS ---
+def create_pdf(text, filename):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    # Membersihkan karakter non-latin agar tidak error
+    clean_text = text.encode('latin-1', 'ignore').decode('latin-1')
+    pdf.multi_cell(0, 10, txt=clean_text)
+    path = os.path.join("downloads", filename)
+    pdf.output(path)
+    return path
 
-# --- FUNGSI UTAMA: DOWNLOADER VIA COMMUNITY INSTANCE (GRATIS) ---
-def cobalt_worker(url, format_type, task_id):
+# --- ROUTES AUTH ---
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.json
+    u, p = data.get('username'), data.get('password')
+    if u in users_db and users_db[u]['password'] == p:
+        session['user'] = u
+        return jsonify({"status": "success", "user": users_db[u]})
+    return jsonify({"status": "error", "message": "Login Gagal"}), 401
+
+# --- ROUTES CORE ---
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    if 'user' not in session:
+        return jsonify({"error": "Silakan login dulu bro!"}), 403
+    
+    user_id = session['user']
+    if users_db[user_id]['credits'] <= 0:
+        return jsonify({"error": "Kredit habis! Hubungi Warung Pro."}), 403
+
+    data = request.json
+    url, mode = data.get('url'), data.get('mode')
+
     try:
-        progress_db[task_id] = {"status": "starting", "percent": 5}
-        
-        # PAKAI SERVER KOMUNITAS (GRATIS & TANPA API KEY)
-        api_url = "https://co.wuk.sh/" 
-        
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json"
+        # Ekstraksi Transkrip
+        video_id = url.split("v=")[1].split("&")[0] if "v=" in url else url.split("/")[-1]
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['id', 'en'])
+        raw_text = " ".join([t['text'] for t in transcript])
+
+        # Proses AI
+        prompts = {
+            "edukasi": f"Buat modul ajar SD Pasuruan dari teks ini: {raw_text}",
+            "kreator": f"Cari hook TikTok Project.78 dari: {raw_text}",
+            "bisnis": f"Buat copy jualan Warung Pro dari: {raw_text}"
         }
+        response = model.generate_content(prompts.get(mode))
         
-        # Payload standar Cobalt v10 terbaru
-        payload = {
-            "url": url,
-            "videoQuality": "720",
-            "audioFormat": "mp3",
-            "downloadMode": "audio" if format_type == 'mp3' else "auto",
-            "filenameStyle": "basic",
-            "youtubeVideoCodec": "h264"
-        }
-
-        print(f"Request ke Server Gratis: {api_url}", flush=True)
-        response = requests.post(api_url, json=payload, headers=headers, timeout=60)
+        # Kurangi Kredit
+        users_db[user_id]['credits'] -= 1
         
-        if response.status_code != 200:
-            print(f"Detail Error: {response.text}", flush=True)
-            raise Exception(f"Server sibuk (Error {response.status_code})")
-
-        data = response.json()
-        
-        if 'url' not in data:
-            raise Exception(data.get('text', 'Gagal mendapatkan link download'))
-
-        direct_link = data['url']
-        progress_db[task_id] = {"status": "downloading", "percent": 30}
-
-        # Tarik file ke server kita (Hugging Face) agar user bisa sedot
-        file_resp = requests.get(direct_link, stream=True, timeout=300)
-        ext = 'mp3' if format_type == 'mp3' else 'mp4'
-        filepath = os.path.join(DOWNLOAD_FOLDER, f"{task_id}.{ext}")
-
-        total_size = int(file_resp.headers.get('content-length', 0))
-        wrote = 0
-        
-        with open(filepath, 'wb') as f:
-            for chunk in file_resp.iter_content(chunk_size=1024*1024):
-                if chunk:
-                    f.write(chunk)
-                    wrote += len(chunk)
-                    if total_size > 0:
-                        # Simulasi pergerakan bar progress
-                        p = 30 + (wrote / total_size * 65)
-                        progress_db[task_id]["percent"] = round(p, 2)
-
-        progress_db[task_id] = {
-            "status": "finished", 
-            "percent": 100, 
-            "file_url": f"/api/get-file/{task_id}"
-        }
-        print(f"Selesai! Task ID: {task_id}", flush=True)
+        # Simpan hasil sementara untuk PDF
+        session['last_result'] = response.text
+        return jsonify({"result": response.text, "remaining_credits": users_db[user_id]['credits']})
 
     except Exception as e:
-        print(f"ERROR: {str(e)}", flush=True)
-        progress_db[task_id] = {"status": "error", "error": str(e)}
+        return jsonify({"error": str(e)}), 500
 
-# --- ENDPOINTS API (Sesuai Frontend Kamu) ---
-
-@app.route('/api/info', methods=['POST'])
-def get_info():
-    return jsonify({
-        "title": "Video Siap Diunduh (Free Mode)",
-        "thumbnail": "https://placehold.co/600x400?text=API+Community+Active",
-        "duration": "Unlimited",
-        "uploader": "External Service"
-    })
-
-@app.route('/api/download', methods=['POST'])
-def download_task():
-    data = request.json
-    url = data.get('url')
-    format_type = data.get('format', 'mp4')
-    task_id = str(uuid.uuid4())
-    
-    # Jalankan proses di background
-    threading.Thread(target=cobalt_worker, args=(url, format_type, task_id)).start()
-    return jsonify({"task_id": task_id})
-
-@app.route('/api/progress/<task_id>')
-def progress_stream(task_id):
-    def generate():
-        while True:
-            data = progress_db.get(task_id, {"status": "waiting", "percent": 0})
-            yield f"data: {json.dumps(data)}\n\n"
-            if data.get("status") in ["finished", "error"]:
-                time.sleep(5)
-                if task_id in progress_db: del progress_db[task_id]
-                break
-            time.sleep(1)
-    return Response(generate(), mimetype='text/event-stream')
-
-@app.route('/api/get-file/<task_id>')
-def get_final_file(task_id):
-    for f in os.listdir(DOWNLOAD_FOLDER):
-        if f.startswith(task_id):
-            return send_file(os.path.join(DOWNLOAD_FOLDER, f), as_attachment=True)
-    return "File tidak ditemukan.", 404
-
-# --- AUTO CLEANUP ---
-def auto_delete_files():
-    while True:
-        now = time.time()
-        try:
-            for f in os.listdir(DOWNLOAD_FOLDER):
-                fp = os.path.join(DOWNLOAD_FOLDER, f)
-                if os.path.isfile(fp) and os.stat(fp).st_mtime < now - 600:
-                    os.remove(fp)
-        except: pass
-        time.sleep(300)
-
-threading.Thread(target=auto_delete_files, daemon=True).start()
+@app.route('/api/export-pdf')
+def export_pdf():
+    content = session.get('last_result', 'No content')
+    if not os.path.exists("downloads"): os.makedirs("downloads")
+    file_path = create_pdf(content, f"Modul_WiraData_{uuid.uuid4().hex[:6]}.pdf")
+    return send_file(file_path, as_attachment=True)
 
 @app.route('/')
-def index():
-    return render_template('index.html')
+def index(): return render_template('index.html')
 
 if __name__ == '__main__':
     app.run(debug=False, port=7860, host='0.0.0.0')
