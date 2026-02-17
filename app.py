@@ -1,4 +1,5 @@
 # === ☢️ DNS MANUAL PATCH (JANGAN DIHAPUS) ===
+# Memaksa server Hugging Face menggunakan DNS Google agar tidak 'linglung'
 import socket
 try:
     import dns.resolver
@@ -20,7 +21,7 @@ try:
     original_getaddrinfo = socket.getaddrinfo
     socket.getaddrinfo = custom_getaddrinfo
 except ImportError:
-    print("⚠️ Warning: dnspython belum terinstall.")
+    print("⚠️ Warning: dnspython belum terinstall di requirements.txt")
 
 from flask import Flask, render_template, request, jsonify, send_file, Response
 import yt_dlp
@@ -36,10 +37,9 @@ app = Flask(__name__)
 @app.before_request
 def log_request_info():
     if not request.path.startswith('/static') and not request.path.startswith('/api/progress'):
-        print(f"LOG MASUK: {request.method} ke {request.path}", flush=True)
-    if request.method == 'POST' and request.is_json:
-        print(f"LOG DATA: {request.get_json()}", flush=True)
+        print(f"LOG: {request.method} ke {request.path}", flush=True)
 
+# Folder penyimpanan file sementara
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
@@ -49,11 +49,11 @@ COOKIES_FILE = 'cookies.txt'
 if 'COOKIES_CONTENT' in os.environ:
     with open(COOKIES_FILE, 'w') as f:
         f.write(os.environ['COOKIES_CONTENT'])
-    print(f"LOG: Cookies dimuat.")
+    print(f"LOG: Cookies dimuat dari Secret.")
 
 progress_db = {}
 
-# --- FUNGSI OPTION YT-DLP (VERSI TV BYPASS) ---
+# --- FUNGSI OPTION YT-DLP (VERSI ANTI-RELOAD) ---
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
         'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
@@ -65,18 +65,19 @@ def get_ydl_opts(task_id=None, progress_hook=None):
         'geo_bypass': True,
         'socket_timeout': 30,
         
-        # --- JURUS TV CLIENT (ANTI-SABR) ---
+        # JURUS ANTI-RELOAD (Pakai Mobile Web & TV Client)
         'extractor_args': {
             'youtube': {
-                # Kita pakai 'tv' dan 'web' saja karena ios/android gak mau cookies
-                'player_client': ['tv', 'web'],
+                'player_client': ['mweb', 'tvhtml5'],
                 'player_skip': ['webpage', 'configs', 'js'],
             }
         },
-        # User agent TV/Desktop yang stabil
         'headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        }
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+        },
+        'dynamic_mpd': True,
     }
 
     if task_id:
@@ -89,9 +90,11 @@ def get_ydl_opts(task_id=None, progress_hook=None):
 def get_info():
     data = request.json
     url = data.get('url')
+    if not url:
+        return jsonify({"error": "URL kosong!"}), 400
+        
     try:
         with yt_dlp.YoutubeDL(get_ydl_opts()) as ydl:
-            # Metadata fetch
             info = ydl.extract_info(url, download=False)
             return jsonify({
                 "title": info.get('title', 'Video Tanpa Judul'),
@@ -133,9 +136,9 @@ def run_yt_dlp(url, format_type, task_id):
             'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
         })
     else:
-        # PENTING: Jangan dipaksa video+audio, biarkan dia ambil yang terbaik dulu
+        # FORMAT FLEKSIBEL (ANTI-SABR)
         opts.update({
-            'format': 'best', # Ambil format tunggal terbaik (biasanya langsung MP4 720p)
+            'format': 'best[ext=mp4]/best', 
             'merge_output_format': 'mp4',
         })
 
@@ -174,9 +177,9 @@ def auto_delete_files():
     while True:
         now = time.time()
         for f in os.listdir(DOWNLOAD_FOLDER):
-            filepath = os.path.join(DOWNLOAD_FOLDER, f)
-            if os.path.isfile(filepath) and os.stat(filepath).st_mtime < now - 600:
-                os.remove(filepath)
+            p = os.path.join(DOWNLOAD_FOLDER, f)
+            if os.path.isfile(p) and os.stat(p).st_mtime < now - 600:
+                os.remove(p)
         time.sleep(300)
 
 threading.Thread(target=auto_delete_files, daemon=True).start()
