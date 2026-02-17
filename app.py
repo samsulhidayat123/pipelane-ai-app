@@ -1,15 +1,11 @@
-# === ☢️ DNS MANUAL PATCH (WAJIB PALING ATAS) ===
-# Kita paksa Python pakai DNS Google (8.8.8.8) biar gak linglung
+# === ☢️ DNS MANUAL PATCH (JANGAN DIHAPUS) ===
 import socket
-import dns.resolver # Perlu install dnspython (lihat instruksi di bawah)
+import dns.resolver # Pastikan 'dnspython' ada di requirements.txt
 
-# Fungsi kustom buat maksa resolve DNS
 def custom_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     try:
-        # Coba cara normal dulu
         return original_getaddrinfo(host, port, family, type, proto, flags)
     except socket.gaierror:
-        # Kalau gagal, paksa tanya ke Google DNS (8.8.8.8)
         print(f"⚠️ DNS Error untuk {host}, mencoba manual resolve...", flush=True)
         try:
             resolver = dns.resolver.Resolver()
@@ -17,13 +13,11 @@ def custom_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
             answers = resolver.resolve(host, 'A')
             ip = answers[0].to_text()
             print(f"✅ Berhasil resolve manual: {host} -> {ip}", flush=True)
-            # Kembalikan format yang dimengerti socket
             return [(socket.AF_INET, type, proto, '', (ip, port))]
         except Exception as e:
             print(f"❌ Gagal total resolve manual: {e}", flush=True)
             raise
 
-# Simpan fungsi asli dan ganti dengan yang kustom
 original_getaddrinfo = socket.getaddrinfo
 socket.getaddrinfo = custom_getaddrinfo
 # ===============================================
@@ -49,27 +43,41 @@ DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
+# --- SETUP COOKIES (KITA NYALAKAN LAGI) ---
+COOKIES_FILE = 'cookies.txt'
+if 'COOKIES_CONTENT' in os.environ:
+    with open(COOKIES_FILE, 'w') as f:
+        f.write(os.environ['COOKIES_CONTENT'])
+    print(f"LOG: Cookies dimuat ({len(os.environ['COOKIES_CONTENT'])} bytes)")
+# ------------------------------------------
+
 progress_db = {}
 
-# --- FUNGSI UTAMA ---
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
-        # Kita matikan cookies dulu biar tes koneksi murni
-        # 'cookiefile': 'cookies.txt', 
+        # 1. Pakai Cookies (Tiket Masuk)
+        'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
         
         'quiet': False,
         'no_warnings': False,
         'verbose': True,
         
-        # Opsi Jaringan Stabil
+        # 2. Network Stability (Anti-Linglung)
         'force_ipv4': True,
         'nocheckcertificate': True,
         'geo_bypass': True,
         'socket_timeout': 30,
         
-        # Headers Polos (Tanpa Android/Impersonate dulu)
+        # 3. Menyamar jadi Android (Anti-Bot)
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'player_skip': ['webpage', 'configs', 'js'],
+                'innertube_client': ['android'],
+            }
+        },
         'headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
         }
     }
 
@@ -102,6 +110,7 @@ def get_info():
             })
     except Exception as e:
         print(f"❌ INFO ERROR: {str(e)}")
+        # Kirim error spesifik ke frontend
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/download', methods=['POST'])
