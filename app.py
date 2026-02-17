@@ -15,7 +15,7 @@ app.config.update(
 )
 
 # 1. KONFIGURASI AI (NAMA KEY: geminiapikey)
-GEMINI_KEY = os.environ.get("geminiapikey")
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 # 2. DATABASE USER
