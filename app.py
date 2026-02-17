@@ -7,7 +7,7 @@ from fpdf import FPDF
 
 app = Flask(__name__)
 # Secret key diperlukan agar session (login & hasil AI) bisa tersimpan
-app.secret_key = os.environ.get("FLASK_SECRET", "WIRADATA_78_SECRET_KEY")
+app.secret_key = os.environ.get("GEMINI_API_KEY")
 
 # 1. KONFIGURASI AI (GEMINI 1.5 FLASH)
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
