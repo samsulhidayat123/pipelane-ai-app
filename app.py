@@ -1,4 +1,4 @@
-# === ☢️ DNS MANUAL PATCH (WAJIB PALING ATAS) ===
+# === ☢️ DNS MANUAL PATCH (JANGAN DIHAPUS) ===
 import socket
 try:
     import dns.resolver
@@ -40,7 +40,6 @@ def log_request_info():
     if request.method == 'POST' and request.is_json:
         print(f"LOG DATA: {request.get_json()}", flush=True)
 
-# Folder penyimpanan file sementara
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
@@ -50,11 +49,11 @@ COOKIES_FILE = 'cookies.txt'
 if 'COOKIES_CONTENT' in os.environ:
     with open(COOKIES_FILE, 'w') as f:
         f.write(os.environ['COOKIES_CONTENT'])
-    print(f"LOG: Cookies dimuat ({len(os.environ['COOKIES_CONTENT'])} bytes)")
+    print(f"LOG: Cookies dimuat.")
 
 progress_db = {}
 
-# --- FUNGSI OPTION YT-DLP (VERSI BYPASS SABR) ---
+# --- FUNGSI OPTION YT-DLP (VERSI TV BYPASS) ---
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
         'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
@@ -66,17 +65,18 @@ def get_ydl_opts(task_id=None, progress_hook=None):
         'geo_bypass': True,
         'socket_timeout': 30,
         
-        # JURUS ANTI-BLOKIR (Client iOS lebih sakti untuk Cookies)
+        # --- JURUS TV CLIENT (ANTI-SABR) ---
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'web', 'android'],
+                # Kita pakai 'tv' dan 'web' saja karena ios/android gak mau cookies
+                'player_client': ['tv', 'web'],
                 'player_skip': ['webpage', 'configs', 'js'],
             }
         },
+        # User agent TV/Desktop yang stabil
         'headers': {
-            'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
-        },
-        'check_formats': False, 
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        }
     }
 
     if task_id:
@@ -88,12 +88,10 @@ def get_ydl_opts(task_id=None, progress_hook=None):
 @app.route('/api/info', methods=['POST'])
 def get_info():
     data = request.json
-    if not data or not data.get('url'):
-        return jsonify({"error": "URL kosong bos!"}), 400
-
     url = data.get('url')
     try:
         with yt_dlp.YoutubeDL(get_ydl_opts()) as ydl:
+            # Metadata fetch
             info = ydl.extract_info(url, download=False)
             return jsonify({
                 "title": info.get('title', 'Video Tanpa Judul'),
@@ -135,11 +133,10 @@ def run_yt_dlp(url, format_type, task_id):
             'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
         })
     else:
-        # AMBIL APA SAJA YANG TERSEDIA, GABUNG JADI MP4
+        # PENTING: Jangan dipaksa video+audio, biarkan dia ambil yang terbaik dulu
         opts.update({
-            'format': 'bestvideo+bestaudio/best',
+            'format': 'best', # Ambil format tunggal terbaik (biasanya langsung MP4 720p)
             'merge_output_format': 'mp4',
-            'format_sort': ['res:720', 'ext:mp4:m4a'],
         })
 
     try:
