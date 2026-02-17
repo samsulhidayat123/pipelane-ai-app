@@ -9,19 +9,15 @@ import logging
 
 app = Flask(__name__)
 
-# === 📹 CCTV LOGGING (Pencatat Request) ===
-# Biar kita tau kalau ada data masuk dari HP/Web
+# === 📹 CCTV LOGGING ===
 @app.before_request
 def log_request_info():
-    # Filter aset statis biar log gak penuh sampah
     if not request.path.startswith('/static') and not request.path.startswith('/api/progress'):
         print(f"LOG MASUK: {request.method} ke {request.path}", flush=True)
     if request.method == 'POST' and request.is_json:
-        # Print data JSON yang dikirim (URL nya)
         print(f"LOG DATA: {request.get_json()}", flush=True)
-# ==========================================
 
-# Folder penyimpanan file sementara
+# Folder penyimpanan
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
@@ -43,23 +39,23 @@ print("----------------------")
 
 progress_db = {}
 
-# --- FUNGSI OPTION YT-DLP (VERSI STABIL & JUJUR) ---
+# --- FUNGSI OPTION YT-DLP (DENGAN PERBAIKAN DNS) ---
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
-        # HAPUS 'impersonate' dulu karena sering bikin silent crash
-        # 'impersonate': 'chrome', 
-
         'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
         
-        # JANGAN DIAM! Tampilkan semua error di logs
+        # LOGGING AKTIF
         'quiet': False,
         'no_warnings': False,
-        'verbose': True, # Paksa output detail
+        'verbose': True,
+        
+        # === SOLUSI DNS ERROR (Mantra Sakti) ===
+        'force_ipv4': True,  # Paksa lewat IPv4 biar server gak linglung
+        # =======================================
         
         'nocheckcertificate': True,
         'geo_bypass': True,
         
-        # Jurus Menyamar jadi Android (Paling ampuh buat Cloud Server)
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
@@ -91,7 +87,6 @@ def get_info():
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Download=False cuma ambil metadata
             info = ydl.extract_info(url, download=False)
             return jsonify({
                 "title": info.get('title', 'Video Tanpa Judul'),
@@ -101,9 +96,7 @@ def get_info():
                 "uploader": info.get('uploader', 'Kreator')
             })
     except Exception as e:
-        # Gunakan repr(e) biar jenis errornya kelihatan jelas di Log
         print(f"INFO ERROR (Detailed): {repr(e)}")
-        # Kirim pesan error asli ke frontend
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/download', methods=['POST'])
