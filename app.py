@@ -5,15 +5,12 @@ import uuid
 import time
 import threading
 import json
-import logging
 
 app = Flask(__name__)
 
-# === 📹 CCTV LOGGING ===
+# === 📹 CCTV LOGGING SIMPLE ===
 @app.before_request
 def log_request_info():
-    if not request.path.startswith('/static') and not request.path.startswith('/api/progress'):
-        print(f"LOG MASUK: {request.method} ke {request.path}", flush=True)
     if request.method == 'POST' and request.is_json:
         print(f"LOG DATA: {request.get_json()}", flush=True)
 
@@ -22,46 +19,28 @@ DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-# --- SETUP COOKIES ---
-COOKIES_FILE = 'cookies.txt'
-print("--- SYSTEM STARTUP ---")
-if 'COOKIES_CONTENT' in os.environ:
-    content = os.environ['COOKIES_CONTENT']
-    if len(content) > 100:
-        with open(COOKIES_FILE, 'w') as f:
-            f.write(content)
-        print(f"LOG: Berhasil membuat cookies.txt (Ukuran: {len(content)} bytes)")
-    else:
-        print("LOG ERROR: Isi Secret COOKIES_CONTENT terlalu pendek/kosong!")
-else:
-    print("LOG WARNING: Secret COOKIES_CONTENT tidak ditemukan!")
-print("----------------------")
+# --- COOKIES DIMATIKAN SEMENTARA ---
+# Kita tes tanpa cookies dulu biar tidak ada redirect aneh-aneh
+COOKIES_FILE = 'cookies.txt' 
+# -----------------------------------
 
 progress_db = {}
 
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
-        'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+        # === SETTINGAN STANDAR PABRIK (RESET) ===
+        # Kita hapus cookiefile, hapus android client, hapus headers aneh-aneh
+        # Biarkan yt-dlp bekerja secara default
         
-        # Kembali ke settingan standar yang stabil
         'quiet': False,
         'no_warnings': False,
-        'verbose': True, # Tetap nyala biar kita bisa pantau
+        'verbose': True, # Tetap nyala buat pantau log
         
+        'force_ipv4': True,  # Tetap pakai IPv4 karena lebih stabil di cloud
         'nocheckcertificate': True,
         'geo_bypass': True,
         
-        # Mode Android tetap kita pakai karena bagus buat bypass login
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web'],
-                'player_skip': ['webpage', 'configs', 'js'],
-                'innertube_client': ['android'],
-            }
-        },
-        'headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-        }
+        # HAPUS extractor_args (Android) -> Kembali ke Web Client biasa
     }
 
     if task_id:
@@ -82,6 +61,7 @@ def get_info():
     ydl_opts = get_ydl_opts()
 
     try:
+        print(f"Mencoba mengambil info dari: {url}")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             return jsonify({
