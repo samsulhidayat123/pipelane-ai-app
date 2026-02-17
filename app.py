@@ -5,26 +5,28 @@ import uuid
 import time
 import threading
 import json
+import logging
 
 app = Flask(__name__)
 
-# === 📹 CCTV LOGGING (Taruh di sini) ===
-# Ini biar ketahuan kalau tombol dipencet, datanya masuk atau enggak
+# === 📹 CCTV LOGGING (Pencatat Request) ===
+# Biar kita tau kalau ada data masuk dari HP/Web
 @app.before_request
 def log_request_info():
-    # Filter biar log gak penuh sama request aset statis (gambar/css)
-    if not request.path.startswith('/static'):
+    # Filter aset statis biar log gak penuh sampah
+    if not request.path.startswith('/static') and not request.path.startswith('/api/progress'):
         print(f"LOG MASUK: {request.method} ke {request.path}", flush=True)
     if request.method == 'POST' and request.is_json:
+        # Print data JSON yang dikirim (URL nya)
         print(f"LOG DATA: {request.get_json()}", flush=True)
-# ========================================
+# ==========================================
 
 # Folder penyimpanan file sementara
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-# --- DEBUG & SETUP COOKIES ---
+# --- SETUP COOKIES ---
 COOKIES_FILE = 'cookies.txt'
 print("--- SYSTEM STARTUP ---")
 if 'COOKIES_CONTENT' in os.environ:
@@ -41,15 +43,23 @@ print("----------------------")
 
 progress_db = {}
 
-# --- FUNGSI OPTION YT-DLP YANG LEBIH KUAT ---
+# --- FUNGSI OPTION YT-DLP (VERSI STABIL & JUJUR) ---
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
-        'impersonate': 'chrome',
+        # HAPUS 'impersonate' dulu karena sering bikin silent crash
+        # 'impersonate': 'chrome', 
+
         'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
-        'quiet': True,
-        'no_warnings': True,
+        
+        # JANGAN DIAM! Tampilkan semua error di logs
+        'quiet': False,
+        'no_warnings': False,
+        'verbose': True, # Paksa output detail
+        
         'nocheckcertificate': True,
         'geo_bypass': True,
+        
+        # Jurus Menyamar jadi Android (Paling ampuh buat Cloud Server)
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
@@ -59,14 +69,12 @@ def get_ydl_opts(task_id=None, progress_hook=None):
         },
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
         }
     }
 
     if task_id:
         opts['outtmpl'] = os.path.join(DOWNLOAD_FOLDER, f"{task_id}.%(ext)s")
     
-    # PERBAIKAN: Indentasi di sini tadi salah, ini yang benar
     if progress_hook:
         opts['progress_hooks'] = [progress_hook]
 
@@ -83,6 +91,7 @@ def get_info():
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Download=False cuma ambil metadata
             info = ydl.extract_info(url, download=False)
             return jsonify({
                 "title": info.get('title', 'Video Tanpa Judul'),
@@ -92,7 +101,9 @@ def get_info():
                 "uploader": info.get('uploader', 'Kreator')
             })
     except Exception as e:
-        print(f"INFO ERROR (Detailed): {str(e)}")
+        # Gunakan repr(e) biar jenis errornya kelihatan jelas di Log
+        print(f"INFO ERROR (Detailed): {repr(e)}")
+        # Kirim pesan error asli ke frontend
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/download', methods=['POST'])
@@ -138,7 +149,7 @@ def run_yt_dlp(url, format_type, task_id):
             ydl.download([url])
             progress_db[task_id] = {"status": "finished", "percent": 100, "file_url": f"/api/get-file/{task_id}"}
     except Exception as e:
-        print(f"DOWNLOAD ERROR: {e}")
+        print(f"DOWNLOAD ERROR: {repr(e)}")
         progress_db[task_id] = {"status": "error", "error": str(e)}
 
 @app.route('/')
