@@ -2,21 +2,20 @@ import os
 import uuid
 from flask import Flask, render_template, request, jsonify, session, send_file
 from youtube_transcript_api import YouTubeTranscriptApi
-from google import genai  # Library baru sesuai peringatan log
+from google import genai # Menggunakan library terbaru agar tidak ada warning
 from fpdf import FPDF
 
 app = Flask(__name__)
 
-# --- FIX SESSION (Agar Tidak Eror 403) ---
-app.secret_key = "WIRADATA_78_STABLE_KEY"
-# Pengaturan agar cookie sesi tetap terbaca di dalam iframe Hugging Face
+# --- FIX SESSION (Agar Tidak Mental ke Login) ---
+app.secret_key = "WIRADATA_78_STABLE_KEY" 
 app.config.update(
-    SESSION_COOKIE_SAMESITE='None',
+    SESSION_COOKIE_SAMESITE='None', # Penting buat Hugging Face
     SESSION_COOKIE_SECURE=True
 )
 
-# 1. KONFIGURASI AI TERBARU (google-genai)
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+# 1. KONFIGURASI AI (NAMA KEY: geminiapikey)
+GEMINI_KEY = os.environ.get("geminiapikey")
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 # 2. DATABASE USER
@@ -50,7 +49,7 @@ def login():
     u, p = data.get('username'), data.get('password')
     if u in users_db and users_db[u]['password'] == p:
         session['user'] = u
-        session.permanent = True # Sesi menetap
+        session.permanent = True 
         return jsonify({"status": "success", "user": {"username": u, "credits": users_db[u]['credits']}})
     return jsonify({"status": "error", "message": "Login Gagal!"}), 401
 
@@ -67,12 +66,14 @@ def analyze():
     url, mode = data.get('url'), data.get('mode')
 
     try:
-        # Ekstraksi Transkrip
+        # Ekstraksi Transkrip (Cara paling aman)
         video_id = url.split("v=")[1].split("&")[0] if "v=" in url else url.split("/")[-1]
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['id', 'en'])
-        raw_text = " ".join([t['text'] for t in transcript])
+        
+        # Panggil class method secara eksplisit
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['id', 'en'])
+        raw_text = " ".join([t['text'] for t in transcript_list])
 
-        # Proses AI Baru ( google-genai )
+        # Proses AI dengan SDK Baru
         prompts = {
             "edukasi": f"Buat modul ajar SD Pasuruan dari: {raw_text}",
             "kreator": f"Ide konten TikTok PROJECT.78 dari: {raw_text}",
@@ -88,12 +89,12 @@ def analyze():
         session['last_result'] = response.text
         return jsonify({"result": response.text, "remaining_credits": users_db[user_id]['credits']})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Gagal memproses: {str(e)}"}), 500
 
 @app.route('/api/export-pdf')
 def export_pdf():
     content = session.get('last_result')
-    file_path = create_pdf(content, f"Hasil_{uuid.uuid4().hex[:6]}.pdf")
+    file_path = create_pdf(content, f"Hasil_Pipeline_{uuid.uuid4().hex[:6]}.pdf")
     return send_file(file_path, as_attachment=True)
 
 if __name__ == '__main__':
