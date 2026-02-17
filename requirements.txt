@@ -1,4 +1,4 @@
-flask
+flask==3.0.0
 youtube-transcript-api>=0.6.2
 google-genai
 fpdf
