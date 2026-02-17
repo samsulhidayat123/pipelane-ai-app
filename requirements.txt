@@ -1,4 +1,4 @@
 flask
 youtube-transcript-api
-google-generativeai
+google-genai
 fpdf
