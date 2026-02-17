@@ -8,6 +8,17 @@ import json
 
 app = Flask(__name__)
 
+# === 📹 CCTV LOGGING (Taruh di sini) ===
+# Ini biar ketahuan kalau tombol dipencet, datanya masuk atau enggak
+@app.before_request
+def log_request_info():
+    # Filter biar log gak penuh sama request aset statis (gambar/css)
+    if not request.path.startswith('/static'):
+        print(f"LOG MASUK: {request.method} ke {request.path}", flush=True)
+    if request.method == 'POST' and request.is_json:
+        print(f"LOG DATA: {request.get_json()}", flush=True)
+# ========================================
+
 # Folder penyimpanan file sementara
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
@@ -18,7 +29,6 @@ COOKIES_FILE = 'cookies.txt'
 print("--- SYSTEM STARTUP ---")
 if 'COOKIES_CONTENT' in os.environ:
     content = os.environ['COOKIES_CONTENT']
-    # Cek apakah isi cookies valid (panjang karakter)
     if len(content) > 100:
         with open(COOKIES_FILE, 'w') as f:
             f.write(content)
@@ -34,19 +44,12 @@ progress_db = {}
 # --- FUNGSI OPTION YT-DLP YANG LEBIH KUAT ---
 def get_ydl_opts(task_id=None, progress_hook=None):
     opts = {
-        # 'impersonate' butuh library curl_cffi di requirements.txt
         'impersonate': 'chrome',
-        
-        # Cookie file
         'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
-        
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
         'geo_bypass': True,
-        
-        # --- JURUS ANDALAN: MENYAMAR JADI ANDROID ---
-        # Ini bypass paling ampuh buat server cloud (Hugging Face)
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web'],
@@ -54,7 +57,6 @@ def get_ydl_opts(task_id=None, progress_hook=None):
                 'innertube_client': ['android'],
             }
         },
-        
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -64,6 +66,7 @@ def get_ydl_opts(task_id=None, progress_hook=None):
     if task_id:
         opts['outtmpl'] = os.path.join(DOWNLOAD_FOLDER, f"{task_id}.%(ext)s")
     
+    # PERBAIKAN: Indentasi di sini tadi salah, ini yang benar
     if progress_hook:
         opts['progress_hooks'] = [progress_hook]
 
@@ -76,7 +79,6 @@ def get_info():
         return jsonify({"error": "URL tidak boleh kosong"}), 400
 
     url = data.get('url')
-    # Pakai settingan yang sama kuatnya
     ydl_opts = get_ydl_opts()
 
     try:
@@ -91,7 +93,6 @@ def get_info():
             })
     except Exception as e:
         print(f"INFO ERROR (Detailed): {str(e)}")
-        # Kirim error asli ke frontend biar tau masalahnya apa
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/download', methods=['POST'])
@@ -100,8 +101,8 @@ def download_task():
     url = data.get('url')
     format_type = data.get('format', 'mp4')
     task_id = str(uuid.uuid4())
-    progress_db[task_id] = {"status": "starting", "percent": 0}
     
+    progress_db[task_id] = {"status": "starting", "percent": 0}
     threading.Thread(target=run_yt_dlp, args=(url, format_type, task_id)).start()
     return jsonify({"task_id": task_id})
 
@@ -118,11 +119,9 @@ def run_yt_dlp(url, format_type, task_id):
         elif d['status'] == 'finished':
             progress_db[task_id] = {"status": "processing", "percent": 100}
 
-    # Ambil opsi dasar
     ydl_opts = get_ydl_opts(task_id, progress_hook)
     ydl_opts['noplaylist'] = True
 
-    # Tambahan format
     if format_type == 'mp3':
         ydl_opts.update({
             'format': 'bestaudio/best',
@@ -142,7 +141,6 @@ def run_yt_dlp(url, format_type, task_id):
         print(f"DOWNLOAD ERROR: {e}")
         progress_db[task_id] = {"status": "error", "error": str(e)}
 
-# --- ROUTE LAINNYA TETAP SAMA ---
 @app.route('/')
 def index(): return render_template('index.html')
 
@@ -182,6 +180,7 @@ def auto_delete_files():
                         os.remove(filepath)
         except Exception as e: print(f"Error Cleanup: {e}")
         time.sleep(300)
+
 threading.Thread(target=auto_delete_files, daemon=True).start()
 
 if __name__ == '__main__':
